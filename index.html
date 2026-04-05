@@ -1,0 +1,1005 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Дроны, ракеты и самолёты</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+    <style>
+        body { margin: 0; padding: 0; }
+        #map { height: 100vh; }
+        .control-panel {
+            position: absolute;
+            bottom: 10px;
+            right: 10px;
+            background: white;
+            padding: 10px;
+            border-radius: 8px;
+            box-shadow: 0 0 6px rgba(0,0,0,0.3);
+            z-index: 1000;
+            display: none;
+        }
+        .restart-btn {
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            z-index: 1000;
+            padding: 5px 10px;
+            border-radius: 5px;
+            color: white;
+            border: none;
+            cursor: pointer;
+            background: red;
+        }
+        .active-routes {
+            position: absolute;
+            top: 90px;
+            right: 10px;
+            width: 400px;
+            background: white;
+            padding: 8px;
+            border-radius: 6px;
+            box-shadow: 0 0 6px rgba(0,0,0,0.3);
+            z-index: 1000;
+            max-height: 400px;
+            overflow-y: auto;
+            font-size: 12px;
+            transition: all 0.3s ease;
+        }
+        .active-routes.hidden {
+            display: none;
+        }
+        .top-bar {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: white;
+            padding: 8px 12px;
+            border-radius: 8px;
+            box-shadow: 0 0 6px rgba(0,0,0,0.3);
+            z-index: 1000;
+            font-size: 14px;
+        }
+        .routeItem {
+            display: flex;
+            flex-direction: column;
+            margin-bottom: 8px;
+            border-bottom: 1px dashed #ccc;
+            padding-bottom: 5px;
+        }
+        .routeControls {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 5px;
+            gap: 3px;
+            flex-wrap: wrap;
+        }
+        .routeControls button {
+            border-radius: 3px;
+            cursor: pointer;
+            font-size: 10px;
+            padding: 2px 5px;
+        }
+        .goalBtn.active { background: gray; color: white; }
+        .trailBtn.active { background: red; color: white; }
+        .routeControls input { width: 55px; font-size: 10px; }
+        #distancePanel {
+            position: absolute;
+            top: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: white;
+            padding: 6px 12px;
+            border-radius: 6px;
+            box-shadow: 0 0 5px rgba(0,0,0,0.3);
+            z-index: 1000;
+            font-size: 12px;
+            display: none;
+        }
+        .info-card {
+            position: absolute;
+            background: white;
+            color: black;
+            padding: 6px 10px;
+            border-radius: 6px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+            font-size: 10px;
+            z-index: 2000;
+            min-width: 300px;
+            pointer-events: none;
+            border: 1px solid #ccc;
+            display: none;
+        }
+        .info-card .title { font-weight: bold; margin-bottom: 3px; font-size: 11px; }
+        .info-card .row { margin-bottom: 2px; }
+        .weapon-menu {
+            position: absolute;
+            background: white;
+            border: 1px solid #ccc;
+            padding: 8px;
+            border-radius: 5px;
+            z-index: 2000;
+            font-size: 11px;
+            min-width: 160px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+        }
+        .weapon-menu button {
+            display: block;
+            width: 100%;
+            margin: 4px 0;
+            padding: 4px;
+            cursor: pointer;
+        }
+        #toggleRoutesBtn {
+            position: absolute;
+            top: 50px;
+            right: 10px;
+            z-index: 1000;
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 5px 10px;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        .ai-notification {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            background: #1a1a2e;
+            color: #0f0;
+            padding: 12px;
+            border-radius: 8px;
+            border-left: 4px solid #0f0;
+            z-index: 2000;
+            font-family: monospace;
+            font-size: 12px;
+            max-width: 300px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+            animation: slideIn 0.3s ease;
+        }
+        .ai-notification button {
+            background: #0f0;
+            color: #000;
+            border: none;
+            padding: 4px 8px;
+            margin: 4px;
+            cursor: pointer;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+        @keyframes slideIn {
+            from { transform: translateX(-100%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+    </style>
+</head>
+<body>
+    <div id="map"></div>
+    
+    <div class="top-bar">
+        <label>Выберите объект: </label>
+        <select id="objectSelect">
+            <optgroup label="Дроны - Разведывательные">
+                <option value="Орлан-10">Орлан-10</option>
+                <option value="Zala">Zala</option>
+                <option value="Supercam">Supercam</option>
+            </optgroup>
+            <optgroup label="Дроны - Ударные">
+                <option value="Герань-2">Герань-2</option>
+                <option value="Гербера">Гербера</option>
+                <option value="Ланцет">Ланцет</option>
+            </optgroup>
+            <optgroup label="Ракеты">
+                <option value="Х-59">Х-59</option>
+                <option value="Искандер-К">Искандер-К</option>
+                <option value="Х-101">Х-101</option>
+                <option value="Калибр">Калибр</option>
+                <option value="Х-69">Х-69</option>
+                <option value="КАБ">КАБ</option>
+            </optgroup>
+            <optgroup label="Гиперзвуковые ракеты">
+                <option value="Искандер-М">Искандер-М</option>
+                <option value="Кинжал">Кинжал</option>
+                <option value="Оникс">Оникс</option>
+                <option value="Циркон">Циркон</option>
+                <option value="Х-22">Х-22</option>
+                <option value="Х-31П">Х-31П</option>
+            </optgroup>
+            <optgroup label="Авиация">
+                <option value="МиГ-29">МиГ-29</option>
+                <option value="Су-24">Су-24</option>
+                <option value="Су-27">Су-27</option>
+                <option value="Су-30">Су-30</option>
+                <option value="Су-34">Су-34</option>
+                <option value="Су-35">Су-35</option>
+                <option value="Су-57">Су-57</option>
+            </optgroup>
+            <optgroup label="Стратегическая Авиация">
+                <option value="Ту-22М3">Ту-22М3</option>
+                <option value="Ту-95МС">Ту-95МС</option>
+                <option value="Ту-160">Ту-160</option>
+            </optgroup>
+        </select>
+    </div>
+    
+    <button id="toggleRoutesBtn">📋 Скрыть маршруты</button>
+    
+    <div class="control-panel" id="controlPanel">
+        <div>Скорость (км/ч): <input type="number" id="speedInput"></div>
+        <button id="setSpeedBtn">Установить скорость</button>
+    </div>
+    
+    <button class="restart-btn" id="restartBtn">Рестарт</button>
+    
+    <div class="active-routes" id="activeRoutes">
+        <strong>Активные маршруты</strong>
+        <div id="routesList"></div>
+    </div>
+    
+    <div id="distancePanel">Дистанция: 0 км | Время: 0 сек</div>
+    <div id="infoCard" class="info-card"></div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+        var map = L.map('map').setView([46.5, 30.7], 6);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap'
+        }).addTo(map);
+        
+        // ============== КЭШ ДЛЯ НАСЕЛЁННЫХ ПУНКТОВ ==============
+        var cityCache = {};
+        
+        async function getNearestCity(lat, lng) {
+            var cacheKey = lat.toFixed(4) + ',' + lng.toFixed(4);
+            if (cityCache[cacheKey]) return cityCache[cacheKey];
+            
+            try {
+                var url = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`;
+                var response = await fetch(url);
+                var data = await response.json();
+                var result = "Неизвестно";
+                if (data.address) {
+                    var name = data.address.suburb || data.address.village || data.address.town || data.address.city || data.address.hamlet;
+                    if (name) {
+                        var city = data.address.city || data.address.town;
+                        if (city && name !== city) result = name + ' (' + city + ')';
+                        else result = name;
+                    }
+                }
+                cityCache[cacheKey] = result;
+                return result;
+            } catch(e) {
+                return "Неизвестно";
+            }
+        }
+        
+        function getPointAhead(currentPos, angle, distanceKm) {
+            var R = 6371;
+            var lat1 = currentPos.lat * Math.PI / 180;
+            var lng1 = currentPos.lng * Math.PI / 180;
+            var brng = angle * Math.PI / 180;
+            var lat2 = Math.asin(Math.sin(lat1) * Math.cos(distanceKm/R) + Math.cos(lat1) * Math.sin(distanceKm/R) * Math.cos(brng));
+            var lng2 = lng1 + Math.atan2(Math.sin(brng) * Math.sin(distanceKm/R) * Math.cos(lat1), Math.cos(distanceKm/R) - Math.sin(lat1) * Math.sin(lat2));
+            return { lat: lat2 * 180 / Math.PI, lng: lng2 * 180 / Math.PI };
+        }
+        
+        // ============== ДАННЫЕ ОБЪЕКТОВ ==============
+        var objects = {
+            "Орлан-10": {type: "recon_drone", min: 90, max: 150, size: 26, img: "https://i.postimg.cc/X70D7SRP/Bez-nazvania71-20260403030359.png"},
+            "Zala": {type: "recon_drone", min: 60, max: 130, size: 26, img: "https://i.postimg.cc/MTqVGqW3/Bez-nazvania72-20260403134654.png"},
+            "Supercam": {type: "recon_drone", min: 100, max: 180, size: 26, img: "https://i.postimg.cc/3JYGCKm8/Bez-nazvania72-20260403134905.png"},
+            "Герань-2": {type: "attack_drone", min: 150, max: 300, size: 24, img: "https://i.postimg.cc/W4dWz2X7/Bez-nazvania71-20260403014220.png"},
+            "Гербера": {type: "attack_drone", min: 100, max: 180, size: 26, img: "https://i.postimg.cc/J4fynMxK/Bez-nazvania72-20260403134008.png"},
+            "Ланцет": {type: "attack_drone", min: 90, max: 300, size: 26, img: "https://i.postimg.cc/c4s9zGwh/Bez-nazvania72-20260403135415.png"},
+            "Х-59": {type: "rocket", min: 900, max: 1050, size: 24, img: "https://i.postimg.cc/TYqNKNGp/Bez-nazvania71-20260403030325.png"},
+            "Искандер-К": {type: "rocket", min: 800, max: 900, size: 24, img: "https://i.postimg.cc/NM9PLgGJ/Bez-nazvania71-20260403030049.png"},
+            "Х-101": {type: "rocket", min: 700, max: 800, size: 24, img: "https://i.postimg.cc/Y2FsHqsC/Bez-nazvania71-20260403030424.png"},
+            "Калибр": {type: "rocket", min: 800, max: 900, size: 24, img: "https://i.postimg.cc/NM9PLgGJ/Bez-nazvania71-20260403030049.png"},
+            "Х-69": {type: "rocket", min: 700, max: 1000, size: 24, img: "https://i.postimg.cc/X7CJttW7/Bez-nazvania72-20260403135301.png"},
+            "КАБ": {type: "rocket", min: 700, max: 1000, size: 24, img: "https://i.postimg.cc/3xQgqgsT/Bez-nazvania72-20260403135129.png"},
+            "Искандер-М": {type: "hypersonic", min: 7500, max: 9300, size: 24, img: "https://i.postimg.cc/D035ZLMd/Bez-nazvania71-20260403030247.png"},
+            "Кинжал": {type: "hypersonic", min: 12000, max: 14600, size: 24, img: "https://i.postimg.cc/mrhm6b9h/Bez-nazvania71-20260403030125.png"},
+            "Оникс": {type: "hypersonic", min: 2400, max: 3180, size: 24, img: "https://i.postimg.cc/2jvyKPrL/Bez-nazvania72-20260403134157.png"},
+            "Циркон": {type: "hypersonic", min: 8000, max: 11000, size: 24, img: "https://i.postimg.cc/DzFPSq6Z/Bez-nazvania72-20260403134350.png"},
+            "Х-22": {type: "hypersonic", min: 4000, max: 5500, size: 24, img: "https://i.postimg.cc/FzHVpcB9/Bez-nazvania71-20260403030217.png"},
+            "Х-31П": {type: "hypersonic", min: 3000, max: 3600, size: 24, img: "https://i.postimg.cc/FsjqsffZ/Bez-nazvania74-20260403180207.png"},
+            "МиГ-29": {type: "plane", min: 800, max: 2000, size: 27, img: "https://i.postimg.cc/G25g7cGz/Bez-nazvania74-20260403180102.png"},
+            "Су-24": {type: "plane", min: 900, max: 1700, size: 27, img: "https://i.postimg.cc/sfQWd7BB/Bez-nazvania74-20260403174410.png"},
+            "Су-27": {type: "plane", min: 1300, max: 2500, size: 27, img: "https://i.postimg.cc/1355P1Wj/Bez-nazvania74-20260403174615.png"},
+            "Су-30": {type: "plane", min: 800, max: 2000, size: 27, img: "https://i.postimg.cc/RZyrYk2M/Bez-nazvania74-20260403175359.png"},
+            "Су-34": {type: "plane", min: 1000, max: 1900, size: 27, img: "https://i.postimg.cc/q7wsqr0M/Bez-nazvania74-20260403175616.png"},
+            "Су-35": {type: "plane", min: 1000, max: 2500, size: 27, img: "https://i.postimg.cc/RZyrYk2M/Bez-nazvania74-20260403175359.png"},
+            "Су-57": {type: "plane", min: 1000, max: 2000, size: 27, img: "https://i.postimg.cc/CK5CQK9Q/Bez-nazvania74-20260403175802.png"},
+            "Ту-22М3": {type: "plane", min: 800, max: 1500, size: 32, img: "https://i.postimg.cc/4xPyvJ32/Bez-nazvania74-20260404132422.png"},
+            "Ту-95МС": {type: "plane", min: 700, max: 800, size: 32, img: "https://i.postimg.cc/sXXV4SLm/Bez-nazvania74-20260404132014.png"},
+            "Ту-160": {type: "plane", min: 900, max: 2000, size: 32, img: "https://i.postimg.cc/Wp0262Ww/Bez-nazvania74-20260404132329.png"}
+        };
+        
+        var weapons = {
+            "МиГ-29": ["Х-31П", "Х-59"],
+            "Су-24": ["Х-31П", "Х-59"],
+            "Су-27": ["Х-31П", "Х-59"],
+            "Су-30": ["Х-31П", "Х-59"],
+            "Су-34": ["Х-31П", "Х-59", "КАБ"],
+            "Су-35": ["Х-31П", "Х-59"],
+            "Су-57": ["Х-31П", "Х-59", "Х-69"],
+            "Ту-22М3": ["Х-22"],
+            "Ту-95МС": ["Х-101"],
+            "Ту-160": ["Х-101"]
+        };
+        
+        function getWeaponType(weapon) {
+            var types = {
+                "Х-31П": "Противорадиолокационная",
+                "Х-59": "Крылатая ракета",
+                "Х-69": "Крылатая ракета",
+                "Х-101": "Крылатая ракета",
+                "Х-22": "Противокорабельная",
+                "КАБ": "Авиабомба"
+            };
+            return types[weapon] || "Ракета";
+        }
+        
+        function getObjectIcon(type) {
+            if (type === 'plane') return '✈️';
+            if (type === 'recon_drone') return '🚁';
+            if (type === 'attack_drone') return '💣';
+            if (type === 'rocket') return '🚀';
+            if (type === 'hypersonic') return '⚡';
+            return '📡';
+        }
+        
+        function getTypeDisplay(objType, name) {
+            if (objType === 'plane') {
+                if (name === 'Су-24' || name === 'Су-34') return 'Бомбардировщик';
+                if (name === 'Ту-22М3' || name === 'Ту-95МС' || name === 'Ту-160') return 'Стратегический бомбардировщик';
+                return 'Истребитель';
+            }
+            if (objType === 'recon_drone') return 'Разведчик';
+            if (objType === 'attack_drone') return 'Ударный БПЛА';
+            if (objType === 'rocket') {
+                if (name === 'КАБ') return 'Управляемая авиабомба';
+                return 'Крылатая ракета';
+            }
+            if (objType === 'hypersonic') {
+                if (name === 'Искандер-М') return 'Баллистическая ракета';
+                if (name === 'Оникс' || name === 'Х-22') return 'Противокорабельная ракета';
+                if (name === 'Х-31П') return 'Противорадиолокационная';
+                return 'Гиперзвуковая ракета';
+            }
+            return 'Объект';
+        }
+        
+        var selectedObject = null;
+        var selectedSpeed = null;
+        var startPoint = null;
+        var startMarker = null;
+        var endMarker = null;
+        var activeRoutes = [];
+        var goalActiveId = null;
+        var distanceActiveId = null;
+        var currentInfoRouteId = null;
+        var infoAnimFrame = null;
+        var courseUpdateInterval = null;
+        
+        var objectSelect = document.getElementById('objectSelect');
+        var controlPanel = document.getElementById('controlPanel');
+        var speedInput = document.getElementById('speedInput');
+        var setSpeedBtn = document.getElementById('setSpeedBtn');
+        var restartBtn = document.getElementById('restartBtn');
+        var routesList = document.getElementById('routesList');
+        var distancePanel = document.getElementById('distancePanel');
+        var infoCard = document.getElementById('infoCard');
+        var toggleRoutesBtn = document.getElementById('toggleRoutesBtn');
+        var activeRoutesPanel = document.getElementById('activeRoutes');
+        
+        toggleRoutesBtn.addEventListener('click', function() {
+            if (activeRoutesPanel.classList.contains('hidden')) {
+                activeRoutesPanel.classList.remove('hidden');
+                toggleRoutesBtn.innerHTML = '📋 Скрыть маршруты';
+            } else {
+                activeRoutesPanel.classList.add('hidden');
+                toggleRoutesBtn.innerHTML = '📂 Показать маршруты';
+            }
+        });
+        
+        function formatTime(seconds) {
+            if (seconds < 0) return '0 сек';
+            var hours = Math.floor(seconds / 3600);
+            var minutes = Math.floor((seconds % 3600) / 60);
+            var secs = Math.floor(seconds % 60);
+            var result = '';
+            if (hours > 0) result += hours + ' ч ';
+            if (minutes > 0 || hours > 0) result += minutes + ' мин ';
+            result += secs + ' сек';
+            return result;
+        }
+        
+        function updateInfoCardPosition() {
+            if (currentInfoRouteId === null) {
+                infoCard.style.display = 'none';
+                return;
+            }
+            var route = activeRoutes.find(r => r.id === currentInfoRouteId);
+            if (!route || !route.marker) {
+                infoCard.style.display = 'none';
+                currentInfoRouteId = null;
+                return;
+            }
+            
+            var pos = route.marker.getLatLng();
+            var point = map.latLngToContainerPoint(pos);
+            infoCard.style.display = 'block';
+            infoCard.style.left = (point.x + 25) + 'px';
+            infoCard.style.top = (point.y - 55) + 'px';
+            
+            var target = route.targetPoint;
+            var distance = 0, etaSec = 0;
+            var targetCity = route.targetCity || "Загрузка...";
+            var currentCity = route.currentCity || "Загрузка...";
+            
+            if (target) {
+                var currentPos = route.marker.getLatLng();
+                distance = map.distance(currentPos, target);
+                var speedMs = route.speed * 1000 / 3600;
+                etaSec = distance / speedMs;
+            }
+            
+            var km = (distance / 1000).toFixed(0);
+            var timeStr = formatTime(etaSec);
+            
+            var icon = getObjectIcon(route.obj.type);
+            var typeText = getTypeDisplay(route.obj.type, objectSelect.value);
+            
+            if (route.obj.type === 'plane') {
+                infoCard.innerHTML = '<div class="title">' + icon + ' ' + objectSelect.value + '</div>' +
+                    '<div class="row">Тип: ' + typeText + '</div>' +
+                    '<div class="row">Скорость: ' + Math.round(route.speed) + ' км/ч</div>' +
+                    '<div class="row">Цель: ' + km + ' км | ⏱ ' + timeStr + '</div>';
+            } else {
+                infoCard.innerHTML = '<div class="title">' + icon + ' ' + objectSelect.value + '</div>' +
+                    '<div class="row">Тип: ' + typeText + '</div>' +
+                    '<div class="row">Скорость: ' + Math.round(route.speed) + ' км/ч</div>' +
+                    '<div class="row">Цель: ' + km + ' км | ⏱ ' + timeStr + '</div>' +
+                    '<div class="row">Курс: ' + currentCity + '</div>' +
+                    '<div class="row">Вектор: ' + targetCity + '</div>';
+            }
+            
+            infoAnimFrame = requestAnimationFrame(updateInfoCardPosition);
+        }
+        
+        async function updateCourseForRoute(route) {
+            if (!route || !route.marker) return;
+            var currentPos = route.marker.getLatLng();
+            var targetPos = route.targetPoint;
+            
+            if (!targetPos) return;
+            
+            var angle = getRotationAngle(currentPos, targetPos);
+            
+            var lookaheadKm = 7;
+            if (route.obj.type === 'recon_drone') lookaheadKm = 1.5;
+            if (route.obj.type === 'attack_drone') lookaheadKm = 5;
+            
+            var aheadPoint = getPointAhead(currentPos, angle, lookaheadKm);
+            var city = await getNearestCity(aheadPoint.lat, aheadPoint.lng);
+            route.currentCity = city + " (через " + lookaheadKm + " км)";
+        }
+        
+        function startCourseUpdater(route) {
+            if (courseUpdateInterval) clearInterval(courseUpdateInterval);
+            courseUpdateInterval = setInterval(async function() {
+                if (currentInfoRouteId === null) return;
+                var route = activeRoutes.find(r => r.id === currentInfoRouteId);
+                if (!route || route.obj.type === 'plane') return;
+                await updateCourseForRoute(route);
+            }, 1500);
+        }
+        
+        function stopCourseUpdater() {
+            if (courseUpdateInterval) {
+                clearInterval(courseUpdateInterval);
+                courseUpdateInterval = null;
+            }
+        }
+        
+        function closeInfoCard() {
+            if (infoAnimFrame) cancelAnimationFrame(infoAnimFrame);
+            infoCard.style.display = 'none';
+            currentInfoRouteId = null;
+            stopCourseUpdater();
+        }
+        
+        function showInfoCard(routeId) {
+            if (currentInfoRouteId === routeId) { closeInfoCard(); return; }
+            if (infoAnimFrame) cancelAnimationFrame(infoAnimFrame);
+            currentInfoRouteId = routeId;
+            stopCourseUpdater();
+            startCourseUpdater(activeRoutes.find(r => r.id === routeId));
+            updateInfoCardPosition();
+        }
+        
+        function launchMissile(planeRouteId, weaponName) {
+            var planeRoute = activeRoutes.find(r => r.id === planeRouteId);
+            if (!planeRoute || !planeRoute.marker) return;
+            var currentPos = planeRoute.marker.getLatLng();
+            var targetPoint = planeRoute.targetPoint;
+            var weaponObj = objects[weaponName];
+            if (!weaponObj) return;
+            var routeId = Date.now() + Math.random();
+            var routeObj = {
+                id: routeId, obj: weaponObj, speed: weaponObj.min,
+                startPoint: currentPos, markerStart: null, targetPoint: targetPoint,
+                markerEnd: null, marker: null, showDistance: false,
+                patrolActive: false, patrolType: null, patrolCenter: null,
+                patrolRadius: 5000, patrolEightRadius: 5000, patrolAngle: 0,
+                patrolEightPhase: 0, patrolDirection: 1, currentAngle: 0, targetAngle: 0,
+                isMissile: true, trailEnabled: false, trailLine: null, trailPoints: [],
+                targetCity: planeRoute.targetCity || "Загрузка...",
+                currentCity: "Загрузка..."
+            };
+            activeRoutes.push(routeObj);
+            routeObj.marker = createMovingObject(routeObj, weaponName);
+            addRouteToList(routeObj, weaponName);
+        }
+        
+        function showWeaponMenu(routeId, planeName) {
+            var weaponsList = weapons[planeName];
+            if (!weaponsList) return;
+            var menuDiv = document.createElement('div');
+            menuDiv.className = 'weapon-menu';
+            var title = document.createElement('div');
+            title.innerHTML = '<strong>Выбери вооружение:</strong>';
+            title.style.marginBottom = '8px';
+            menuDiv.appendChild(title);
+            weaponsList.forEach(function(weapon) {
+                var btn = document.createElement('button');
+                btn.innerHTML = '🔴 ' + weapon + ' (' + getWeaponType(weapon) + ')';
+                btn.onclick = function() {
+                    launchMissile(routeId, weapon);
+                    document.body.removeChild(menuDiv);
+                };
+                menuDiv.appendChild(btn);
+            });
+            var cancelBtn = document.createElement('button');
+            cancelBtn.innerHTML = 'Отмена';
+            cancelBtn.onclick = function() { document.body.removeChild(menuDiv); };
+            menuDiv.appendChild(cancelBtn);
+            document.body.appendChild(menuDiv);
+            var rect = document.getElementById('route-' + routeId).getBoundingClientRect();
+            menuDiv.style.left = rect.left + 'px';
+            menuDiv.style.top = (rect.bottom + 5) + 'px';
+            setTimeout(function() {
+                document.addEventListener('click', function closeMenu(e) {
+                    if (!menuDiv.contains(e.target)) {
+                        if (document.body.contains(menuDiv)) document.body.removeChild(menuDiv);
+                        document.removeEventListener('click', closeMenu);
+                    }
+                });
+            }, 100);
+        }
+        
+        objectSelect.addEventListener('change', function() {
+            var name = objectSelect.value;
+            if (!name || !objects[name]) {
+                controlPanel.style.display = 'none';
+                selectedObject = null;
+                return;
+            }
+            selectedObject = objects[name];
+            selectedSpeed = selectedObject.min;
+            speedInput.value = selectedObject.min;
+            speedInput.min = selectedObject.min;
+            speedInput.max = selectedObject.max;
+            controlPanel.style.display = 'block';
+        });
+        
+        setSpeedBtn.addEventListener('click', function() {
+            if (!selectedObject) return;
+            var val = parseFloat(speedInput.value);
+            if (val < selectedObject.min) val = selectedObject.min;
+            if (val > selectedObject.max) val = selectedObject.max;
+            selectedSpeed = val;
+        });
+        
+        restartBtn.addEventListener('click', function() { location.reload(); });
+        
+        function updateDistanceDisplay(routeObj, distance) {
+            if (routeObj.showDistance && distanceActiveId === routeObj.id) {
+                var km = (distance / 1000).toFixed(2);
+                var speedMs = routeObj.speed * 1000 / 3600;
+                var etaSec = distance / speedMs;
+                distancePanel.innerHTML = 'Дистанция: ' + km + ' км | Время: ' + formatTime(etaSec);
+            }
+        }
+        
+        // ============== ИИ: АВТОМАТИЧЕСКОЕ ПОЛУЧЕНИЕ ЦЕЛЕЙ ==============
+        var ws = null;
+        
+        function connectAI() {
+            // ЗДЕСЬ ТВОЯ ССЫЛКА НА WEBHOOK ОТ БОТА (замени потом)
+            ws = new WebSocket('wss://your-bot.onrender.com/ws');
+            
+            ws.onopen = function() {
+                console.log('🤖 ИИ подключен');
+            };
+            
+            ws.onmessage = function(event) {
+                var data = JSON.parse(event.data);
+                if (data.type === 'auto_target') {
+                    showAINotification(data);
+                }
+            };
+            
+            ws.onerror = function() {
+                setTimeout(connectAI, 5000);
+            };
+        }
+        
+        function showAINotification(data) {
+            var notification = document.createElement('div');
+            notification.className = 'ai-notification';
+            notification.innerHTML = `
+                <div><strong>🤖 ИИ обнаружил цель</strong></div>
+                <div>📍 ${data.target}</div>
+                <div>🗺 ${data.target_lat.toFixed(4)}, ${data.target_lng.toFixed(4)}</div>
+                <div style="margin-top: 8px;">
+                    <button onclick="addTargetToSelected(${data.target_lat}, ${data.target_lng}, '${data.target}')">🎯 Назначить выбранному</button>
+                    <button onclick="addTargetToNew(${data.target_lat}, ${data.target_lng}, '${data.target}')">➕ Создать цель</button>
+                    <button onclick="this.parentElement.parentElement.remove()">✖️</button>
+                </div>
+            `;
+            document.body.appendChild(notification);
+            
+            setTimeout(function() {
+                if (notification.parentElement) notification.remove();
+            }, 20000);
+        }
+        
+        function addTargetToSelected(lat, lng, name) {
+            if (goalActiveId !== null) {
+                var r = activeRoutes.find(r => r.id === goalActiveId);
+                if (r) {
+                    if (r.markerEnd) map.removeLayer(r.markerEnd);
+                    r.targetPoint = L.latLng(lat, lng);
+                    r.markerEnd = L.circleMarker([lat, lng], {radius: 4, color: 'red', opacity: 0.5}).addTo(map).bindPopup(`Цель 🎯 (ИИ: ${name})`).openPopup();
+                    r.patrolActive = false;
+                    if (currentInfoRouteId === r.id) updateInfoCardPosition();
+                    alert(`✅ Цель ${name} назначена объекту`);
+                }
+            } else {
+                alert('❌ Сначала выбери объект (нажми "Цель" у нужного маршрута)');
+            }
+        }
+        
+        function addTargetToNew(lat, lng, name) {
+            var marker = L.marker([lat, lng], {
+                icon: L.divIcon({html: '🎯', className: '', iconSize: [20, 20]})
+            }).addTo(map);
+            marker.bindPopup(`Цель от ИИ: ${name}`).openPopup();
+            L.circle([lat, lng], {color: 'red', fillColor: '#f03', fillOpacity: 0.2, radius: 3000}).addTo(map);
+            alert(`✅ Цель ${name} добавлена на карту`);
+        }
+        
+        map.on('click', function(e) {
+            if (goalActiveId !== null) {
+                var r = activeRoutes.find(r => r.id === goalActiveId);
+                if (r) {
+                    if (r.markerEnd) map.removeLayer(r.markerEnd);
+                    r.targetPoint = e.latlng;
+                    r.markerEnd = L.circleMarker(e.latlng, {radius: 4, color: 'red', opacity: 0.5}).addTo(map).bindPopup("Цель 🎯").openPopup();
+                    r.patrolActive = false;
+                    if (currentInfoRouteId === r.id) updateInfoCardPosition();
+                }
+                goalActiveId = null;
+                document.querySelectorAll('.goalBtn').forEach(b => b.classList.remove('active'));
+                return;
+            }
+            if (!selectedObject) return;
+            if (!startPoint) {
+                startPoint = e.latlng;
+                startMarker = L.circleMarker(startPoint, {radius: 4, opacity: 0}).addTo(map);
+            } else {
+                var endPoint = e.latlng;
+                endMarker = L.circleMarker(endPoint, {radius: 4, color: 'red', opacity: 0.5}).addTo(map).bindPopup("Цель 🎯").openPopup();
+                var routeId = Date.now();
+                var circleRadius = (selectedObject.type === 'recon_drone') ? 500 : 8000;
+                var eightRadius = (selectedObject.type === 'recon_drone') ? 500 : 5000;
+                
+                var targetCityName = "Загрузка...";
+                getNearestCity(endPoint.lat, endPoint.lng).then(city => {
+                    var route = activeRoutes.find(r => r.id === routeId);
+                    if (route) route.targetCity = city;
+                });
+                
+                var routeObj = {
+                    id: routeId, obj: selectedObject, speed: selectedSpeed,
+                    startPoint: startPoint, markerStart: startMarker, targetPoint: endPoint,
+                    markerEnd: endMarker, marker: null, showDistance: false,
+                    patrolActive: false, patrolType: null, patrolCenter: null,
+                    patrolRadius: circleRadius, patrolEightRadius: eightRadius,
+                    patrolAngle: 0, patrolEightPhase: 0, patrolDirection: 1,
+                    currentAngle: 0, targetAngle: 0, isMissile: false,
+                    trailEnabled: false, trailLine: null, trailPoints: [],
+                    targetCity: targetCityName,
+                    currentCity: "Загрузка..."
+                };
+                activeRoutes.push(routeObj);
+                routeObj.marker = createMovingObject(routeObj, objectSelect.value);
+                addRouteToList(routeObj, objectSelect.value);
+                startPoint = null;
+                startMarker = null;
+                endMarker = null;
+            }
+        });
+        
+        function addRouteToList(routeObj, name) {
+            var div = document.createElement('div');
+            div.className = 'routeItem';
+            div.id = 'route-' + routeObj.id;
+            var isPlane = (routeObj.obj.type === 'plane');
+            var weaponButton = '';
+            if (isPlane && weapons[name]) {
+                weaponButton = '<button onclick="showWeaponMenu(' + routeObj.id + ', \'' + name + '\')">ВООРУЖЕНИЕ</button>';
+            }
+            var trailBtnClass = routeObj.trailEnabled ? 'trailBtn active' : 'trailBtn';
+            var trailBtnStyle = routeObj.trailEnabled ? 'background:red;color:white;' : '';
+            div.innerHTML = '<span>' + getObjectIcon(routeObj.obj.type) + ' ' + name + ' (' + getTypeDisplay(routeObj.obj.type, name) + ')</span>' + 
+                '<div class="routeControls">' + 
+                '<input type="number" value="' + routeObj.speed + '" min="' + routeObj.obj.min + '" max="' + routeObj.obj.max + '" onchange="changeSpeed(' + routeObj.id + ', this.value)">' + 
+                '<button class="goalBtn" onclick="toggleGoal(' + routeObj.id + ', this)">Цель</button>' + 
+                '<button onclick="toggleDistancePanel(' + routeObj.id + ', this)">Дист</button>' + 
+                weaponButton +
+                '<button class="' + trailBtnClass + '" onclick="toggleTrail(' + routeObj.id + ', this)" style="' + trailBtnStyle + '">ТРЕЙЛ</button>' + 
+                '<button onclick="removeRoute(' + routeObj.id + ')">X</button>' +
+                '</div>';
+            routesList.appendChild(div);
+        }
+        
+        window.showWeaponMenu = showWeaponMenu;
+        window.addTargetToSelected = addTargetToSelected;
+        window.addTargetToNew = addTargetToNew;
+        
+        window.removeRoute = function(id) {
+            var r = activeRoutes.find(r => r.id === id);
+            if (r) {
+                if (r.marker) map.removeLayer(r.marker);
+                if (r.markerStart) map.removeLayer(r.markerStart);
+                if (r.markerEnd) map.removeLayer(r.markerEnd);
+                if (r.trailLine) {
+                    map.removeLayer(r.trailLine);
+                    r.trailLine = null;
+                }
+                if (r.trailPoints) {
+                    r.trailPoints = [];
+                }
+                activeRoutes = activeRoutes.filter(a => a.id !== id);
+                var elem = document.getElementById('route-' + id);
+                if (elem) elem.remove();
+                if (goalActiveId === id) goalActiveId = null;
+                if (distanceActiveId === id) { 
+                    distancePanel.style.display = 'none'; 
+                    distanceActiveId = null; 
+                }
+                if (currentInfoRouteId === id) closeInfoCard();
+            }
+        };
+        
+        window.changeSpeed = function(id, val) {
+            var r = activeRoutes.find(r => r.id === id);
+            if (r) r.speed = parseFloat(val);
+        };
+        
+        window.toggleGoal = function(id, btn) {
+            if (goalActiveId === id) {
+                goalActiveId = null;
+                btn.classList.remove('active');
+            } else {
+                goalActiveId = id;
+                document.querySelectorAll('.goalBtn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+            }
+        };
+        
+        window.toggleDistancePanel = function(id, btn) {
+            if (distanceActiveId === id) {
+                distancePanel.style.display = 'none';
+                distanceActiveId = null;
+            } else {
+                distanceActiveId = id;
+                distancePanel.style.display = 'block';
+            }
+            activeRoutes.forEach(r => r.showDistance = (r.id === distanceActiveId));
+        };
+        
+        window.toggleTrail = function(id, btn) {
+            var r = activeRoutes.find(r => r.id === id);
+            if (!r) return;
+            r.trailEnabled = !r.trailEnabled;
+            if (r.trailEnabled) {
+                btn.style.background = 'red';
+                btn.style.color = 'white';
+                if (r.trailLine && r.trailPoints.length > 0) {
+                    r.trailLine.setStyle({ opacity: 1 });
+                } else if (r.trailPoints.length > 0) {
+                    r.trailLine = L.polyline(r.trailPoints, { color: 'red', weight: 1, opacity: 1 }).addTo(map);
+                }
+            } else {
+                btn.style.background = '';
+                btn.style.color = '';
+                if (r.trailLine) r.trailLine.setStyle({ opacity: 0 });
+            }
+        };
+        
+        function addTrailPoint(routeObj, latlng) {
+            var stillExists = activeRoutes.some(r => r.id === routeObj.id);
+            if (!stillExists) return;
+            
+            if (!routeObj.trailPoints) routeObj.trailPoints = [];
+            routeObj.trailPoints.push(latlng);
+            if (routeObj.trailEnabled && routeObj.trailPoints.length > 1) {
+                if (routeObj.trailLine) {
+                    map.removeLayer(routeObj.trailLine);
+                }
+                routeObj.trailLine = L.polyline(routeObj.trailPoints, { color: 'red', weight: 1, opacity: 1 }).addTo(map);
+            } else if (!routeObj.trailEnabled && routeObj.trailLine) {
+                routeObj.trailLine.setStyle({ opacity: 0 });
+            }
+        }
+        
+        function getRotationAngle(from, to) {
+            var dx = to.lng - from.lng;
+            var dy = to.lat - from.lat;
+            return Math.atan2(dx, dy) * 180 / Math.PI;
+        }
+        
+        function smoothAngle(current, target, deltaTime, maxTurn) {
+            maxTurn = maxTurn || 360;
+            var maxChange = maxTurn * deltaTime;
+            var diff = target - current;
+            while (diff > 180) diff -= 360;
+            while (diff < -180) diff += 360;
+            if (Math.abs(diff) < maxChange) return target;
+            return current + Math.sign(diff) * maxChange;
+        }
+        
+        function getNextPatrolPoint(routeObj, currentPos, deltaTime) {
+            if (!routeObj.patrolCenter) {
+                routeObj.patrolCenter = currentPos;
+                var dx = routeObj.targetPoint.lng - routeObj.startPoint.lng;
+                routeObj.patrolDirection = dx > 0 ? 1 : -1;
+                routeObj.patrolType = Math.random() < 0.5 ? 'circle' : 'eight';
+                if (routeObj.markerEnd) { map.removeLayer(routeObj.markerEnd); routeObj.markerEnd = null; }
+                routeObj.currentAngle = 0;
+                routeObj.targetAngle = 0;
+            }
+            if (routeObj.patrolType === 'circle') {
+                var radius = routeObj.patrolRadius;
+                var angularSpeed = (routeObj.speed * 1000 / 3600) / radius;
+                var angleDelta = angularSpeed * deltaTime * routeObj.patrolDirection;
+                routeObj.patrolAngle = (routeObj.patrolAngle || 0) + angleDelta;
+                var rad = routeObj.patrolAngle;
+                var lat = routeObj.patrolCenter.lat + (radius / 111320) * Math.cos(rad);
+                var lng = routeObj.patrolCenter.lng + (radius / (111320 * Math.cos(routeObj.patrolCenter.lat * Math.PI / 180))) * Math.sin(rad);
+                var tangent = rad * 180 / Math.PI + 90 * routeObj.patrolDirection;
+                routeObj.targetAngle = tangent;
+                var maxTurn = (routeObj.obj.type === 'rocket' || routeObj.obj.type === 'hypersonic') ? 540 : 360;
+                routeObj.currentAngle = smoothAngle(routeObj.currentAngle || tangent, routeObj.targetAngle, deltaTime, maxTurn);
+                return {point: L.latLng(lat, lng), angle: routeObj.currentAngle};
+            } else {
+                var radius = routeObj.patrolEightRadius;
+                var linearSpeed = routeObj.speed * 1000 / 3600;
+                var angularSpeed = (linearSpeed / (radius * 8)) * 2 * Math.PI;
+                routeObj.patrolEightPhase = (routeObj.patrolEightPhase || 0) + angularSpeed * deltaTime;
+                var t = routeObj.patrolEightPhase * 2 * Math.PI;
+                var x = radius * Math.sin(t);
+                var y = radius * Math.sin(t) * Math.cos(t);
+                var lat = routeObj.patrolCenter.lat + y / 111320;
+                var lng = routeObj.patrolCenter.lng + x / (111320 * Math.cos(routeObj.patrolCenter.lat * Math.PI / 180));
+                var dxdt = radius * Math.cos(t) * 2 * Math.PI;
+                var dydt = radius * (Math.cos(t)*Math.cos(t) - Math.sin(t)*Math.sin(t)) * 2 * Math.PI;
+                var tangent = Math.atan2(dxdt, dydt) * 180 / Math.PI;
+                routeObj.targetAngle = tangent;
+                var maxTurn = (routeObj.obj.type === 'rocket' || routeObj.obj.type === 'hypersonic') ? 540 : 360;
+                routeObj.currentAngle = smoothAngle(routeObj.currentAngle || tangent, routeObj.targetAngle, deltaTime, maxTurn);
+                return {point: L.latLng(lat, lng), angle: routeObj.currentAngle};
+            }
+        }
+        
+        function createMovingObject(routeObj, label) {
+            var size = routeObj.obj.size || 26;
+            var html = '<div style="position:relative; width:' + size + 'px; height:' + size + 'px;">' +
+                '<img src="' + routeObj.obj.img + '" style="width:' + size + 'px; height:' + size + 'px; transform:rotate(0deg); transition:transform 0.033s linear;">' +
+                '<div style="position:absolute; top:-16px; left:-8px; color:red; font-size:10px; font-weight:bold;">' + label + '</div>' +
+                '</div>';
+            var icon = L.divIcon({html: html, className: '', iconSize: [size, size], iconAnchor: [size/2, size/2]});
+            var marker = L.marker(routeObj.startPoint, {icon: icon}).addTo(map);
+            
+            marker.on('click', function(e) {
+                L.DomEvent.stopPropagation(e);
+                showInfoCard(routeObj.id);
+            });
+            
+            var lastTime = performance.now();
+            var animId = null;
+            var maxTurn = (routeObj.obj.type === 'rocket' || routeObj.obj.type === 'hypersonic') ? 540 : 360;
+            var currentAngle = 0;
+            
+            function updateRotation(angle) {
+                var el = marker.getElement();
+                if (el) {
+                    var img = el.querySelector('img');
+                    if (img) img.style.transform = 'rotate(' + angle + 'deg)';
+                }
+            }
+            
+            function moveStep(time) {
+                if (!marker) { if (animId) cancelAnimationFrame(animId); return; }
+                var delta = Math.min(0.05, (time - lastTime) / 1000);
+                if (delta <= 0) { animId = requestAnimationFrame(moveStep); return; }
+                lastTime = time;
+                var current = marker.getLatLng();
+                var target = routeObj.targetPoint;
+                if (!target) { animId = requestAnimationFrame(moveStep); return; }
+                var distance = map.distance(current, target);
+                updateDistanceDisplay(routeObj, distance);
+                
+                if (routeObj.trailPoints && activeRoutes.some(r => r.id === routeObj.id)) {
+                    addTrailPoint(routeObj, current);
+                }
+                
+                if (distance < 50) {
+                    var shouldPatrol = ((routeObj.obj.type === 'plane' || routeObj.obj.type === 'recon_drone') && !routeObj.isMissile);
+                    if (shouldPatrol && !routeObj.patrolActive) {
+                        routeObj.patrolActive = true;
+                        routeObj.patrolCenter = current;
+                        routeObj.patrolAngle = 0;
+                        routeObj.patrolEightPhase = 0;
+                        routeObj.currentAngle = 0;
+                        routeObj.targetAngle = 0;
+                        if (routeObj.markerEnd) { map.removeLayer(routeObj.markerEnd); routeObj.markerEnd = null; }
+                    }
+                    if (shouldPatrol && routeObj.patrolActive) {
+                        var patrol = getNextPatrolPoint(routeObj, current, delta);
+                        if (patrol && patrol.point) {
+                            routeObj.targetPoint = patrol.point;
+                            if (patrol.angle !== undefined) updateRotation(patrol.angle);
+                        }
+                        animId = requestAnimationFrame(moveStep);
+                        return;
+                    } else {
+                        if (marker) map.removeLayer(marker);
+                        if (routeObj.markerStart) map.removeLayer(routeObj.markerStart);
+                        if (routeObj.markerEnd) map.removeLayer(routeObj.markerEnd);
+                        if (routeObj.trailLine) map.removeLayer(routeObj.trailLine);
+                        activeRoutes = activeRoutes.filter(r => r.id !== routeObj.id);
+                        var el = document.getElementById('route-' + routeObj.id);
+                        if (el) el.remove();
+                        if (goalActiveId === routeObj.id) goalActiveId = null;
+                        if (distanceActiveId === routeObj.id) distancePanel.style.display = 'none';
+                        if (currentInfoRouteId === routeObj.id) closeInfoCard();
+                        if (animId) cancelAnimationFrame(animId);
+                        return;
+                    }
+                }
+                var speedMs = routeObj.speed * 1000 / 3600;
+                var moveDist = speedMs * delta;
+                var frac = Math.min(moveDist / distance, 1);
+                var newLat = current.lat + (target.lat - current.lat) * frac;
+                var newLng = current.lng + (target.lng - current.lng) * frac;
+                marker.setLatLng([newLat, newLng]);
+                var targetAngle = getRotationAngle(current, {lat: newLat, lng: newLng});
+                routeObj.targetAngle = targetAngle;
+                currentAngle = smoothAngle(currentAngle !== undefined ? currentAngle : targetAngle, targetAngle, delta, maxTurn);
+                updateRotation(currentAngle);
+                animId = requestAnimationFrame(moveStep);
+            }
+            animId = requestAnimationFrame(moveStep);
+            return marker;
+        }
+        
+        // Запускаем подключение к ИИ
+        setTimeout(connectAI, 2000);
+    </script>
+</body>
+</html>
