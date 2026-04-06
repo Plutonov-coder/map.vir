@@ -45,9 +45,7 @@
             font-size: 12px;
             transition: all 0.3s ease;
         }
-        .active-routes.hidden {
-            display: none;
-        }
+        .active-routes.hidden { display: none; }
         .top-bar {
             position: absolute;
             top: 10px;
@@ -141,35 +139,17 @@
             border-radius: 5px;
             cursor: pointer;
         }
-        .ai-notification {
+        .status {
             position: absolute;
-            bottom: 20px;
-            left: 20px;
-            background: #1a1a2e;
+            bottom: 10px;
+            left: 100px;
+            background: rgba(0,0,0,0.7);
             color: #0f0;
-            padding: 12px;
-            border-radius: 8px;
-            border-left: 4px solid #0f0;
-            z-index: 2000;
-            font-family: monospace;
-            font-size: 12px;
-            max-width: 300px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.3);
-            animation: slideIn 0.3s ease;
-        }
-        .ai-notification button {
-            background: #0f0;
-            color: #000;
-            border: none;
             padding: 4px 8px;
-            margin: 4px;
-            cursor: pointer;
             border-radius: 4px;
-            font-weight: bold;
-        }
-        @keyframes slideIn {
-            from { transform: translateX(-100%); opacity: 0; }
-            to { transform: translateX(0); opacity: 1; }
+            font-family: monospace;
+            font-size: 11px;
+            z-index: 1000;
         }
     </style>
 </head>
@@ -238,6 +218,7 @@
     
     <div id="distancePanel">Дистанция: 0 км | Время: 0 сек</div>
     <div id="infoCard" class="info-card"></div>
+    <div id="pollStatus" class="status">⚫ Ожидание целей...</div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script>
@@ -252,7 +233,6 @@
         async function getNearestCity(lat, lng) {
             var cacheKey = lat.toFixed(4) + ',' + lng.toFixed(4);
             if (cityCache[cacheKey]) return cityCache[cacheKey];
-            
             try {
                 var url = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`;
                 var response = await fetch(url);
@@ -268,9 +248,7 @@
                 }
                 cityCache[cacheKey] = result;
                 return result;
-            } catch(e) {
-                return "Неизвестно";
-            }
+            } catch(e) { return "Неизвестно"; }
         }
         
         function getPointAhead(currentPos, angle, distanceKm) {
@@ -381,6 +359,8 @@
         var currentInfoRouteId = null;
         var infoAnimFrame = null;
         var courseUpdateInterval = null;
+        var lastObjectId = null;
+        var pollInterval = null;
         
         var objectSelect = document.getElementById('objectSelect');
         var controlPanel = document.getElementById('controlPanel');
@@ -392,6 +372,7 @@
         var infoCard = document.getElementById('infoCard');
         var toggleRoutesBtn = document.getElementById('toggleRoutesBtn');
         var activeRoutesPanel = document.getElementById('activeRoutes');
+        var pollStatus = document.getElementById('pollStatus');
         
         toggleRoutesBtn.addEventListener('click', function() {
             if (activeRoutesPanel.classList.contains('hidden')) {
@@ -459,6 +440,11 @@
             } else {
                 infoCard.innerHTML = '<div class="title">' + icon + ' ' + objectSelect.value + '</div>' +
                     '<div class="row">Тип: ' + typeText + '</div>' +
+                            '<div class="row">Скорость: ' + Math.round(route.speed) + ' км/ч</div>' +
+                    '<div class="row">Цель: ' + km + ' км | ⏱ ' + timeStr + '</div>';
+            } else {
+                infoCard.innerHTML = '<div class="title">' + icon + ' ' + objectSelect.value + '</div>' +
+                    '<div class="row">Тип: ' + typeText + '</div>' +
                     '<div class="row">Скорость: ' + Math.round(route.speed) + ' км/ч</div>' +
                     '<div class="row">Цель: ' + km + ' км | ⏱ ' + timeStr + '</div>' +
                     '<div class="row">Курс: ' + currentCity + '</div>' +
@@ -472,15 +458,11 @@
             if (!route || !route.marker) return;
             var currentPos = route.marker.getLatLng();
             var targetPos = route.targetPoint;
-            
             if (!targetPos) return;
-            
             var angle = getRotationAngle(currentPos, targetPos);
-            
             var lookaheadKm = 7;
             if (route.obj.type === 'recon_drone') lookaheadKm = 1.5;
             if (route.obj.type === 'attack_drone') lookaheadKm = 5;
-            
             var aheadPoint = getPointAhead(currentPos, angle, lookaheadKm);
             var city = await getNearestCity(aheadPoint.lat, aheadPoint.lng);
             route.currentCity = city + " (через " + lookaheadKm + " км)";
@@ -613,72 +595,48 @@
             }
         }
         
-        // ============== ИИ: АВТОМАТИЧЕСКОЕ ПОЛУЧЕНИЕ ЦЕЛЕЙ ==============
-        var ws = null;
+        // ============== POLLING (ОПРОС БОТА) ==============
+        var BOT_URL = "https://plutonov.pythonanywhere.com/get_target";
         
-        function connectAI() {
-            // ЗДЕСЬ ТВОЯ ССЫЛКА НА WEBHOOK ОТ БОТА (замени потом)
-            ws = new WebSocket('wss://your-bot.onrender.com/ws');
-            
-            ws.onopen = function() {
-                console.log('🤖 ИИ подключен');
-            };
-            
-            ws.onmessage = function(event) {
-                var data = JSON.parse(event.data);
-                if (data.type === 'auto_target') {
-                    showAINotification(data);
+        async function checkForNewTarget() {
+            try {
+                var response = await fetch(BOT_URL);
+                var data = await response.json();
+                
+                if (data.has_target && data.lat && data.lng) {
+                    pollStatus.innerHTML = '🟢 Цель получена: ' + data.lat + ', ' + data.lng;
+                    pollStatus.style.color = '#0f0';
+                    
+                    if (lastObjectId !== null) {
+                        var route = activeRoutes.find(r => r.id == lastObjectId);
+                        if (route) {
+                            if (route.markerEnd) map.removeLayer(route.markerEnd);
+                            route.targetPoint = L.latLng(data.lat, data.lng);
+                            route.markerEnd = L.circleMarker([data.lat, data.lng], {
+                                radius: 4, color: 'red', opacity: 0.5
+                            }).addTo(map).bindPopup(`Цель 🎯 (бот: ${data.name || 'цель'})`).openPopup();
+                            route.patrolActive = false;
+                            if (currentInfoRouteId === route.id) updateInfoCardPosition();
+                            pollStatus.innerHTML = '✅ Цель изменена у объекта #' + lastObjectId;
+                            setTimeout(() => {
+                                pollStatus.innerHTML = '🟢 Ожидание целей...';
+                            }, 2000);
+                        }
+                    } else {
+                        pollStatus.innerHTML = '⚠️ Нет активных объектов для смены цели';
+                    }
+                } else {
+                    pollStatus.innerHTML = '⚫ Нет новых целей';
                 }
-            };
-            
-            ws.onerror = function() {
-                setTimeout(connectAI, 5000);
-            };
-        }
-        
-        function showAINotification(data) {
-            var notification = document.createElement('div');
-            notification.className = 'ai-notification';
-            notification.innerHTML = `
-                <div><strong>🤖 ИИ обнаружил цель</strong></div>
-                <div>📍 ${data.target}</div>
-                <div>🗺 ${data.target_lat.toFixed(4)}, ${data.target_lng.toFixed(4)}</div>
-                <div style="margin-top: 8px;">
-                    <button onclick="addTargetToSelected(${data.target_lat}, ${data.target_lng}, '${data.target}')">🎯 Назначить выбранному</button>
-                    <button onclick="addTargetToNew(${data.target_lat}, ${data.target_lng}, '${data.target}')">➕ Создать цель</button>
-                    <button onclick="this.parentElement.parentElement.remove()">✖️</button>
-                </div>
-            `;
-            document.body.appendChild(notification);
-            
-            setTimeout(function() {
-                if (notification.parentElement) notification.remove();
-            }, 20000);
-        }
-        
-        function addTargetToSelected(lat, lng, name) {
-            if (goalActiveId !== null) {
-                var r = activeRoutes.find(r => r.id === goalActiveId);
-                if (r) {
-                    if (r.markerEnd) map.removeLayer(r.markerEnd);
-                    r.targetPoint = L.latLng(lat, lng);
-                    r.markerEnd = L.circleMarker([lat, lng], {radius: 4, color: 'red', opacity: 0.5}).addTo(map).bindPopup(`Цель 🎯 (ИИ: ${name})`).openPopup();
-                    r.patrolActive = false;
-                    if (currentInfoRouteId === r.id) updateInfoCardPosition();
-                    alert(`✅ Цель ${name} назначена объекту`);
-                }
-            } else {
-                alert('❌ Сначала выбери объект (нажми "Цель" у нужного маршрута)');
+            } catch(e) {
+                pollStatus.innerHTML = '🔴 Ошибка связи с ботом';
+                pollStatus.style.color = '#f00';
             }
         }
         
-        function addTargetToNew(lat, lng, name) {
-            var marker = L.marker([lat, lng], {
-                icon: L.divIcon({html: '🎯', className: '', iconSize: [20, 20]})
-            }).addTo(map);
-            marker.bindPopup(`Цель от ИИ: ${name}`).openPopup();
-            L.circle([lat, lng], {color: 'red', fillColor: '#f03', fillOpacity: 0.2, radius: 3000}).addTo(map);
-            alert(`✅ Цель ${name} добавлена на карту`);
+        function startPolling() {
+            if (pollInterval) clearInterval(pollInterval);
+            pollInterval = setInterval(checkForNewTarget, 1000);
         }
         
         map.on('click', function(e) {
@@ -727,6 +685,7 @@
                 activeRoutes.push(routeObj);
                 routeObj.marker = createMovingObject(routeObj, objectSelect.value);
                 addRouteToList(routeObj, objectSelect.value);
+                lastObjectId = routeId;
                 startPoint = null;
                 startMarker = null;
                 endMarker = null;
@@ -757,8 +716,6 @@
         }
         
         window.showWeaponMenu = showWeaponMenu;
-        window.addTargetToSelected = addTargetToSelected;
-        window.addTargetToNew = addTargetToNew;
         
         window.removeRoute = function(id) {
             var r = activeRoutes.find(r => r.id === id);
@@ -770,9 +727,7 @@
                     map.removeLayer(r.trailLine);
                     r.trailLine = null;
                 }
-                if (r.trailPoints) {
-                    r.trailPoints = [];
-                }
+                if (r.trailPoints) r.trailPoints = [];
                 activeRoutes = activeRoutes.filter(a => a.id !== id);
                 var elem = document.getElementById('route-' + id);
                 if (elem) elem.remove();
@@ -782,6 +737,7 @@
                     distanceActiveId = null; 
                 }
                 if (currentInfoRouteId === id) closeInfoCard();
+                if (lastObjectId === id) lastObjectId = null;
             }
         };
         
@@ -834,13 +790,10 @@
         function addTrailPoint(routeObj, latlng) {
             var stillExists = activeRoutes.some(r => r.id === routeObj.id);
             if (!stillExists) return;
-            
             if (!routeObj.trailPoints) routeObj.trailPoints = [];
             routeObj.trailPoints.push(latlng);
             if (routeObj.trailEnabled && routeObj.trailPoints.length > 1) {
-                if (routeObj.trailLine) {
-                    map.removeLayer(routeObj.trailLine);
-                }
+                if (routeObj.trailLine) map.removeLayer(routeObj.trailLine);
                 routeObj.trailLine = L.polyline(routeObj.trailPoints, { color: 'red', weight: 1, opacity: 1 }).addTo(map);
             } else if (!routeObj.trailEnabled && routeObj.trailLine) {
                 routeObj.trailLine.setStyle({ opacity: 0 });
@@ -885,12 +838,7 @@
                 routeObj.targetAngle = tangent;
                 var maxTurn = (routeObj.obj.type === 'rocket' || routeObj.obj.type === 'hypersonic') ? 540 : 360;
                 routeObj.currentAngle = smoothAngle(routeObj.currentAngle || tangent, routeObj.targetAngle, deltaTime, maxTurn);
-                return {point: L.latLng(lat, lng), angle: routeObj.currentAngle};
-            } else {
-                var radius = routeObj.patrolEightRadius;
-                var linearSpeed = routeObj.speed * 1000 / 3600;
-                var angularSpeed = (linearSpeed / (radius * 8)) * 2 * Math.PI;
-                routeObj.patrolEightPhase = (routeObj.patrolEightPhase || 0) + angularSpeed * deltaTime;
+                return {point: L.latLng(lat, lng), angle: routeObj.patrolEightPhase || 0) + angularSpeed * deltaTime;
                 var t = routeObj.patrolEightPhase * 2 * Math.PI;
                 var x = radius * Math.sin(t);
                 var y = radius * Math.sin(t) * Math.cos(t);
@@ -943,11 +891,9 @@
                 if (!target) { animId = requestAnimationFrame(moveStep); return; }
                 var distance = map.distance(current, target);
                 updateDistanceDisplay(routeObj, distance);
-                
                 if (routeObj.trailPoints && activeRoutes.some(r => r.id === routeObj.id)) {
                     addTrailPoint(routeObj, current);
                 }
-                
                 if (distance < 50) {
                     var shouldPatrol = ((routeObj.obj.type === 'plane' || routeObj.obj.type === 'recon_drone') && !routeObj.isMissile);
                     if (shouldPatrol && !routeObj.patrolActive) {
@@ -998,8 +944,8 @@
             return marker;
         }
         
-        // Запускаем подключение к ИИ
-        setTimeout(connectAI, 2000);
+        // Запускаем polling
+        startPolling();
     </script>
 </body>
 </html>
