@@ -227,7 +227,6 @@
             attribution: '© OpenStreetMap'
         }).addTo(map);
         
-        // ============== КЭШ ДЛЯ НАСЕЛЁННЫХ ПУНКТОВ ==============
         var cityCache = {};
         
         async function getNearestCity(lat, lng) {
@@ -261,7 +260,6 @@
             return { lat: lat2 * 180 / Math.PI, lng: lng2 * 180 / Math.PI };
         }
         
-        // ============== ДАННЫЕ ОБЪЕКТОВ ==============
         var objects = {
             "Орлан-10": {type: "recon_drone", min: 90, max: 150, size: 26, img: "https://i.postimg.cc/X70D7SRP/Bez-nazvania71-20260403030359.png"},
             "Zala": {type: "recon_drone", min: 60, max: 130, size: 26, img: "https://i.postimg.cc/MTqVGqW3/Bez-nazvania72-20260403134654.png"},
@@ -436,11 +434,6 @@
                 infoCard.innerHTML = '<div class="title">' + icon + ' ' + objectSelect.value + '</div>' +
                     '<div class="row">Тип: ' + typeText + '</div>' +
                     '<div class="row">Скорость: ' + Math.round(route.speed) + ' км/ч</div>' +
-                    '<div class="row">Цель: ' + km + ' км | ⏱ ' + timeStr + '</div>';
-            } else {
-                infoCard.innerHTML = '<div class="title">' + icon + ' ' + objectSelect.value + '</div>' +
-                    '<div class="row">Тип: ' + typeText + '</div>' +
-                            '<div class="row">Скорость: ' + Math.round(route.speed) + ' км/ч</div>' +
                     '<div class="row">Цель: ' + km + ' км | ⏱ ' + timeStr + '</div>';
             } else {
                 infoCard.innerHTML = '<div class="title">' + icon + ' ' + objectSelect.value + '</div>' +
@@ -635,7 +628,7 @@
         }
         
         function startPolling() {
-            if (pollInterval) clearInterval(pollInterval);
+                        if (pollInterval) clearInterval(pollInterval);
             pollInterval = setInterval(checkForNewTarget, 1000);
         }
         
@@ -838,7 +831,12 @@
                 routeObj.targetAngle = tangent;
                 var maxTurn = (routeObj.obj.type === 'rocket' || routeObj.obj.type === 'hypersonic') ? 540 : 360;
                 routeObj.currentAngle = smoothAngle(routeObj.currentAngle || tangent, routeObj.targetAngle, deltaTime, maxTurn);
-                return {point: L.latLng(lat, lng), angle: routeObj.patrolEightPhase || 0) + angularSpeed * deltaTime;
+                return {point: L.latLng(lat, lng), angle: routeObj.currentAngle};
+            } else {
+                var radius = routeObj.patrolEightRadius;
+                var linearSpeed = routeObj.speed * 1000 / 3600;
+                var angularSpeed = (linearSpeed / (radius * 8)) * 2 * Math.PI;
+                routeObj.patrolEightPhase = (routeObj.patrolEightPhase || 0) + angularSpeed * deltaTime;
                 var t = routeObj.patrolEightPhase * 2 * Math.PI;
                 var x = radius * Math.sin(t);
                 var y = radius * Math.sin(t) * Math.cos(t);
@@ -944,7 +942,6 @@
             return marker;
         }
         
-        // Запускаем polling
         startPolling();
     </script>
 </body>
